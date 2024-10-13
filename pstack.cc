@@ -54,97 +54,97 @@ pstack(Procman::Process &proc)
 int
 startChild(Elf::Object::sptr exe, const std::string &cmd,
            const PstackOptions &options, Dwarf::ImageCache &ic) {
-   std::vector<std::string> args;
-   for (size_t off = 0;;) {
-      auto pos = cmd.find(' ', off);
-      if (pos == std::string::npos) {
-         args.push_back(cmd.substr(off));
-         break;
-      } else {
-         args.push_back(cmd.substr(off, pos));
-         off = pos + 1;
-      }
-   }
+    std::vector<std::string> args;
+    for (size_t off = 0;;) {
+        auto pos = cmd.find(' ', off);
+        if (pos == std::string::npos) {
+            args.push_back(cmd.substr(off));
+            break;
+        } else {
+          args.push_back(cmd.substr(off, pos));
+          off = pos + 1;
+        }
+    }
 
-   int rc, status;
-   pid_t pid = fork();
-   switch (pid) {
-      case 0: {
-         rc = ptrace(PTRACE_TRACEME, 0, 0, 0);
-         assert(rc == 0);
-         std::vector<const char *> sysargs;
-         std::transform(args.begin(), args.end(), std::back_inserter(sysargs),
-                        [] (const std::string &arg) { return arg.c_str(); });
-         sysargs.push_back(nullptr);
-         execvp(sysargs[0], (char **)&sysargs[0]);
-         if (verbose > 2)
-             *debug << getpid() << " execvp failed: " << strerror(errno) << "\n";
-         // child
-         break;
-      }
-      case -1:
-         // error
-         return -1;
-      default:
-         std::shared_ptr<Procman::Process> p;
-         char statusBuf[PATH_MAX];
-         snprintf(statusBuf, sizeof statusBuf, "/proc/%d/status", pid);
-         struct closer { void operator()(FILE *f){ fclose(f); }};
-         std::unique_ptr<FILE, closer> statusFile { fopen(statusBuf, "r") };
-         assert(statusFile.get());
-
-         for (;;) {
+    int rc, status;
+    pid_t pid = fork();
+    switch (pid) {
+        case 0: {
+            rc = ptrace(PTRACE_TRACEME, 0, 0, 0);
+            assert(rc == 0);
+            std::vector<const char *> sysargs;
+            std::transform(args.begin(), args.end(), std::back_inserter(sysargs),
+                           [] (const std::string &arg) { return arg.c_str(); });
+            sysargs.push_back(nullptr);
+            execvp(sysargs[0], (char **)&sysargs[0]);
             if (verbose > 2)
-               *debug << getpid() << " waiting...\n";
-            rc = wait(&status);
-            if (rc != pid) {
-               if (verbose > 2)
-                  *debug << getpid() << "... wait failed: " << strerror(errno) << "\n";
-               break;
-            }
-            if (verbose > 2)
-               *debug << getpid() << "... done - rc=" << rc
-                   << ", status=" << Procman::WaitStatus(status) << "\n";
+                *debug << getpid() << " execvp failed: " << strerror(errno) << "\n";
+            // child
+            break;
+        }
+        case -1:
+            // error
+            return -1;
+        default:
+            std::shared_ptr<Procman::Process> p;
+            char statusBuf[PATH_MAX];
+            snprintf(statusBuf, sizeof statusBuf, "/proc/%d/status", pid);
+            struct closer { void operator()(FILE *f){ fclose(f); }};
+            std::unique_ptr<FILE, closer> statusFile { fopen(statusBuf, "r") };
+            assert(statusFile.get());
 
-            if (WIFSTOPPED(status)) {
-               // Read the content of the process's SigIgn and SigCgt info from procfs.
-               fflush(statusFile.get());
-               fseek(statusFile.get(), 0, SEEK_SET);
-               char line[PATH_MAX];
-               uint64_t sigblk = -1, sigign = -1, sigcgt = -1;
-               while (fgets(line, sizeof line, statusFile.get()) != NULL) {
-                  if (strncmp(line, "SigBlk:\t", 8) == 0)
-                     sigblk = strtoull(line + 8, 0, 16);
-                  else if (strncmp(line, "SigCgt:\t", 8) == 0)
-                     sigcgt = strtoull(line + 8, 0, 16);
-                  else if (strncmp(line, "SigIgn:\t", 8) == 0)
-                     sigign = strtoull(line + 8, 0, 16);
-               }
-               unsigned long handledSigs = sigblk | sigcgt | sigign;
-               handledSigs |= 1 << (SIGTRAP - 1);
-               int stopsig = WSTOPSIG(status);
-               int contsig = stopsig == SIGSTOP || stopsig == SIGTRAP ? 0 : stopsig;
-               if (((1 << (stopsig -1)) & handledSigs) == 0) {
-                  p = std::make_shared<Procman::LiveProcess>(exe, pid, options, ic, true);
-                  p->load();
-                  pstack(*p);
-                  rc = ptrace(PTRACE_KILL, pid, 0, contsig);
-               } else {
-                  rc = ptrace(PTRACE_CONT, pid, 0, contsig);
-               }
-               if (rc == -1)
-                  *debug << getpid() << " ptrace failed to kill/continue - " << strerror(errno) << "\n";
-               assert(rc == 0);
-               if (verbose > 2)
-                  *debug << getpid() << "..done\n";
+            for (;;) {
+                if (verbose > 2)
+                   *debug << getpid() << " waiting...\n";
+                rc = wait(&status);
+                if (rc != pid) {
+                    if (verbose > 2)
+                       *debug << getpid() << "... wait failed: " << strerror(errno) << "\n";
+                    break;
+                }
+                if (verbose > 2)
+                   *debug << getpid() << "... done - rc=" << rc
+                       << ", status=" << Procman::WaitStatus(status) << "\n";
+
+                if (WIFSTOPPED(status)) {
+                    // Read the content of the process's SigIgn and SigCgt info from procfs.
+                    fflush(statusFile.get());
+                    fseek(statusFile.get(), 0, SEEK_SET);
+                    char line[PATH_MAX];
+                    uint64_t sigblk = -1, sigign = -1, sigcgt = -1;
+                    while (fgets(line, sizeof line, statusFile.get()) != NULL) {
+                        if (strncmp(line, "SigBlk:\t", 8) == 0)
+                            sigblk = strtoull(line + 8, 0, 16);
+                        else if (strncmp(line, "SigCgt:\t", 8) == 0)
+                            sigcgt = strtoull(line + 8, 0, 16);
+                        else if (strncmp(line, "SigIgn:\t", 8) == 0)
+                            sigign = strtoull(line + 8, 0, 16);
+                    }
+                    unsigned long handledSigs = sigblk | sigcgt | sigign;
+                    handledSigs |= 1 << (SIGTRAP - 1);
+                    int stopsig = WSTOPSIG(status);
+                    int contsig = stopsig == SIGSTOP || stopsig == SIGTRAP ? 0 : stopsig;
+                    if (((1 << (stopsig -1)) & handledSigs) == 0) {
+                        p = std::make_shared<Procman::LiveProcess>(exe, pid, options, ic, true);
+                        p->load();
+                        pstack(*p);
+                        rc = ptrace(PTRACE_KILL, pid, 0, contsig);
+                    } else {
+                        rc = ptrace(PTRACE_CONT, pid, 0, contsig);
+                    }
+                    if (rc == -1)
+                        *debug << getpid() << " ptrace failed to kill/continue - " << strerror(errno) << "\n";
+                    assert(rc == 0);
+                    if (verbose > 2)
+                        *debug << getpid() << "..done\n";
+                }
+                else {
+                   return 0;
+                }
             }
-            else {
-               return 0;
-            }
-         }
-         break;
-   }
-   return 0;
+            break;
+    }
+    return 0;
 }
 
 
@@ -195,14 +195,14 @@ bool pystack(Procman::Process &proc, bool showModules) {
 int
 usage(std::ostream &os, const char *name, const Flags &options)
 {
-     os <<
+    os <<
 "usage: " << name << " <[ exe ] <PID | core> >+\n"
 "\n"
 "print a stack trace of PID or core. If specified, assume image was created from\n"
 " execing `exe`, otherwise, the executable is inferred from the process or core\n"
 "\n"
 "available options:\n" << options <<  "\n";
-     return EX_USAGE;
+    return EX_USAGE;
 }
 
 int
@@ -401,16 +401,16 @@ emain(int argc, char **argv, Dwarf::ImageCache &imageCache)
         }
     };
     for (int i = optind; i < argc; i++) {
-       try {
-          auto process = Procman::Process::load(exec, argv[i], options, imageCache); // this calls the load() instance member.
-          if (process == nullptr)
-             exec = imageCache.getImageForName(argv[i]);
-          else
-             doStack(*process);
-       } catch (const std::exception &e) {
-          std::cerr << "trace of " << argv[i] << " failed: " << e.what() << "\n";
-          failures = true;
-       }
+        try {
+            auto process = Procman::Process::load(exec, argv[i], options, imageCache); // this calls the load() instance member.
+            if (process == nullptr)
+                exec = imageCache.getImageForName(argv[i]);
+            else
+                doStack(*process);
+        } catch (const std::exception &e) {
+            std::cerr << "trace of " << argv[i] << " failed: " << e.what() << "\n";
+            failures = true;
+        }
     }
     return failures ? EX_SOFTWARE : 0;
 }
