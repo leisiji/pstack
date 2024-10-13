@@ -43,19 +43,24 @@ SelfProcess::getRegs(lwpid_t, int code, size_t size, void *regs) // for now, we 
     getcontext(&context);
 
     switch (code) {
-       case NT_PRSTATUS:
+        case NT_PRSTATUS:
 #ifdef __aarch64__
-          assert(size == sizeof context.uc_mcontext.regs);
-          memcpy(regs, &context.uc_mcontext.regs, size);
+            assert(size == sizeof context.uc_mcontext.regs);
+            memcpy(regs, &context.uc_mcontext.regs, size);
+#elif defined(__arm__)
+            // assert(size == sizeof context.uc_mcontext.regs);
+            memcpy(regs, &context.uc_mcontext.arm_r0, size);
 #else
-          assert(size == sizeof (user_regs_struct));
-          gregset2core(*reinterpret_cast<user_regs_struct *>(regs), context.uc_mcontext.gregs);
+            assert(size == sizeof (user_regs_struct));
+            gregset2core(*reinterpret_cast<user_regs_struct *>(regs), context.uc_mcontext.gregs);
 #endif
-          return size;
+            return size;
 #ifndef __aarch64__ // TODO
-       case NT_FPREGSET:
-          memcpy(regs, context.uc_mcontext.fpregs, size);
-          return size;
+#ifndef __arm__
+        case NT_FPREGSET:
+            memcpy(regs, context.uc_mcontext.fpregs, size);
+            return size;
+#endif
 #endif
     }
     return 0;

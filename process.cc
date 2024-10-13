@@ -131,7 +131,7 @@ gregset2core(Elf::CoreRegisters &core, const gregset_t greg) {
 #elif defined(__arm__)
     // ARM has unfied types for NT_PRSTATUS and ucontext, and the offsets are
     // actually the DWARF register numbers, too.
-    for (int i = 0; i < ELF_NGREG)
+    for (unsigned int i = 0; i < ELF_NGREG; i++)
         core.regs[i] = greg[i];
 #endif
 }
@@ -923,6 +923,7 @@ ThreadStack::unwind(Process &p, Elf::CoreRegisters &regs)
                 // register rather than a pushd return address
 
 
+#if defined(__amd64__) || defined(__i386__) || defined(__aarch64__)
                 if (stack.size() == 1 || stack[stack.size() - 2].isSignalTrampoline) {
                     ProcessLocation badip = { p, IP(prev.regs) };
                     if (!badip.inObject() || (badip.codeloc->phdr_->p_flags & PF_X) == 0) {
@@ -946,6 +947,7 @@ ThreadStack::unwind(Process &p, Elf::CoreRegisters &regs)
 #endif
                     }
                 }
+#endif
 #if defined(__aarch64__)
                 // Deal with unwinding through an ARM signal handler
                 if (trampoline && trampoline == prev.rawIP()) {
